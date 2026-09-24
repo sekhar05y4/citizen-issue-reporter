@@ -23,6 +23,19 @@ export function App() {
   const [officers, setOfficers] = useState<User[]>([]);
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
 
+  // Sidebar collapse state with localStorage persistence
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('admin_sidebar_collapsed') === 'true';
+  });
+
+  const handleToggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('admin_sidebar_collapsed', next ? 'true' : 'false');
+      return next;
+    });
+  };
+
   useEffect(() => {
     const cachedUser = localStorage.getItem('admin_user');
     if (cachedUser) {
@@ -69,15 +82,17 @@ export function App() {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-slate-50 w-full overflow-x-hidden">
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         currentUser={currentUser}
         onLogout={handleLogout}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
       />
 
-      <main className="flex-1 ml-64 p-8 overflow-y-auto min-h-screen">
+      <main className="flex-1 min-w-0 p-8 overflow-y-auto min-h-screen">
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800 capitalize">{activeTab.replace('_', ' ')}</h1>
