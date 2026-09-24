@@ -9,11 +9,14 @@ import { FeedbackPage } from './pages/FeedbackPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
+import { LandingPage } from './pages/LandingPage';
 import { ComplaintModal } from './components/ComplaintModal';
-import type { User, Complaint, Category, Department, DashboardStats } from './types';
+import type { User, Complaint, Category, Department, DashboardStats, UserRole } from './types';
 import { api } from './services/api';
 
 export function App() {
+  const [viewMode, setViewMode] = useState<'landing' | 'login' | 'app'>('landing');
+  const [selectedRole, setSelectedRole] = useState<UserRole>('ADMIN');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -40,7 +43,9 @@ export function App() {
     const cachedUser = localStorage.getItem('admin_user');
     if (cachedUser) {
       try {
-        setCurrentUser(JSON.parse(cachedUser));
+        const parsed = JSON.parse(cachedUser);
+        setCurrentUser(parsed);
+        setViewMode('app');
       } catch (_) {}
     }
   }, []);
@@ -75,12 +80,40 @@ export function App() {
     localStorage.removeItem('admin_token');
     localStorage.removeItem('admin_user');
     setCurrentUser(null);
+    setViewMode('landing');
   };
 
-  if (!currentUser) {
-    return <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />;
+  // 1. Landing page initial view
+  if (!currentUser && viewMode === 'landing') {
+    return (
+      <LandingPage
+        onNavigateLogin={(role) => {
+          setSelectedRole(role || 'ADMIN');
+          setViewMode('login');
+        }}
+        onExploreDemo={() => {
+          setSelectedRole('ADMIN');
+          setViewMode('login');
+        }}
+      />
+    );
   }
 
+  // 2. Login view with role selection
+  if (!currentUser && viewMode === 'login') {
+    return (
+      <LoginPage
+        initialRole={selectedRole}
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setViewMode('app');
+        }}
+        onBackToHome={() => setViewMode('landing')}
+      />
+    );
+  }
+
+  // 3. Main Dashboard & Command Center
   return (
     <div className="flex min-h-screen bg-slate-50 w-full overflow-x-hidden">
       <Sidebar
@@ -96,12 +129,29 @@ export function App() {
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800 capitalize">{activeTab.replace('_', ' ')}</h1>
-            <p className="text-xs text-slate-500 font-medium">Municipal Grievance Redressal Command Center</p>
+            <p className="text-xs text-slate-500 font-medium">
+              {currentUser?.role === 'OFFICER'
+                ? `Department Field Operations — ${currentUser.department_name || 'Assigned Division'}`
+                : currentUser?.role === 'CITIZEN'
+                ? 'Citizen Grievance Status & Redressal Tracking'
+                : 'Municipal Grievance Redressal Command Center'}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
               System Online
             </span>
+            <button
+              onClick={() => {
+                localStorage.removeItem('admin_token');
+                localStorage.removeItem('admin_user');
+                setCurrentUser(null);
+                setViewMode('landing');
+              }}
+              className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors"
+            >
+              Exit to Portal
+            </button>
           </div>
         </header>
 
