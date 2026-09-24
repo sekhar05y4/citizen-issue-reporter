@@ -3,11 +3,12 @@ from flask import Blueprint, request
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from app import db
 from app.models.models import Complaint, ComplaintStatusHistory, Notification, Department, AdminUser, User, Category, Feedback
-from app.utils.helpers import api_response
+from app.utils.helpers import api_response, role_required
 
 admin_bp = Blueprint('admin_bp', __name__)
 
 @admin_bp.route('/dashboard', methods=['GET'])
+@role_required('ADMIN', 'OFFICER')
 def get_dashboard_stats():
     total_complaints = Complaint.query.count()
     submitted = Complaint.query.filter_by(status='SUBMITTED').count()
@@ -53,21 +54,38 @@ def get_dashboard_stats():
 
 
 @admin_bp.route('/complaints', methods=['GET'])
+@role_required('ADMIN', 'OFFICER')
 def get_admin_complaints():
+    identity = get_jwt_identity()
+    role = identity.get('role') if isinstance(identity, dict) else 'ADMIN'
+    user_id = identity.get('id') if isinstance(identity, dict) else None
+    department_id = identity.get('department_id') if isinstance(identity, dict) else None
+
     status = request.args.get('status')
     category_id = request.args.get('category_id')
-    department_id = request.args.get('department_id')
+    req_dept_id = request.args.get('department_id')
     priority = request.args.get('priority')
     search = request.args.get('search', '').strip()
 
     query = Complaint.query
 
+    # If Officer, limit to assigned department or officer
+    if role == 'OFFICER':
+        if department_id:
+            query = query.filter(
+                (Complaint.assigned_department_id == department_id) | 
+                (Complaint.assigned_officer_id == user_id)
+            )
+        else:
+            if user_id:
+                query = query.filter_by(assigned_officer_id=user_id)
+
     if status and status != 'ALL':
         query = query.filter_by(status=status)
     if category_id and category_id != 'ALL':
         query = query.filter_by(category_id=int(category_id))
-    if department_id and department_id != 'ALL':
-        query = query.filter_by(assigned_department_id=int(department_id))
+    if req_dept_id and req_dept_id != 'ALL' and role == 'ADMIN':
+        query = query.filter_by(assigned_department_id=int(req_dept_id))
     if priority and priority != 'ALL':
         query = query.filter_by(priority=priority)
     if search:
@@ -82,6 +100,7 @@ def get_admin_complaints():
 
 
 @admin_bp.route('/complaints/<int:complaint_id>/status', methods=['PUT'])
+@role_required('ADMIN', 'OFFICER')
 def update_complaint_status(complaint_id):
     complaint = db.session.get(Complaint, complaint_id)
     if not complaint:
@@ -90,7 +109,7 @@ def update_complaint_status(complaint_id):
     data = request.get_json() or {}
     new_status = data.get('status', '').strip().upper()
     remarks = data.get('remarks', '').strip()
-    changed_by = data.get('changed_by', 'Municipal Officer').strip()
+    changed_by = data.get('changed_by', 'Municipal Staff').strip()
 
     valid_statuses = ['SUBMITTED', 'UNDER_REVIEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'REJECTED']
     if new_status not in valid_statuses:
@@ -131,6 +150,7 @@ def update_complaint_status(complaint_id):
 
 
 @admin_bp.route('/complaints/<int:complaint_id>/assign', methods=['PUT'])
+@role_required('ADMIN')
 def assign_complaint(complaint_id):
     complaint = db.session.get(Complaint, complaint_id)
     if not complaint:
@@ -171,18 +191,21 @@ def assign_complaint(complaint_id):
 
 
 @admin_bp.route('/users', methods=['GET'])
+@role_required('ADMIN')
 def get_users():
     citizens = User.query.order_by(User.created_at.desc()).all()
     return api_response(True, 'Citizens list', [u.to_dict() for u in citizens])
 
 
 @admin_bp.route('/departments', methods=['GET'])
+@role_required('ADMIN', 'OFFICER')
 def get_departments():
     depts = Department.query.all()
     return api_response(True, 'Departments list', [d.to_dict() for d in depts])
 
 
 @admin_bp.route('/departments', methods=['POST'])
+@role_required('ADMIN')
 def create_department():
     data = request.get_json() or {}
     name = data.get('name', '').strip()
@@ -198,6 +221,7 @@ def create_department():
 
 
 @admin_bp.route('/officers', methods=['GET'])
+@role_required('ADMIN')
 def get_officers():
     officers = AdminUser.query.all()
     return api_response(True, 'Staff & officers list', [o.to_dict() for o in officers])

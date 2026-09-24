@@ -1,7 +1,9 @@
 import os
 import uuid
+from functools import wraps
 from werkzeug.utils import secure_filename
 from flask import jsonify
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'gif'}
 
@@ -35,3 +37,26 @@ def api_response(success=True, message="", data=None, errors=None, status_code=2
     if errors is not None:
         payload['errors'] = errors
     return jsonify(payload), status_code
+
+def role_required(*allowed_roles):
+    """
+    Decorator to enforce JWT authentication and check that the user's role
+    matches one of the allowed roles.
+    """
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                verify_jwt_in_request()
+            except Exception:
+                return api_response(False, "Authentication token required or expired", status_code=401)
+            
+            identity = get_jwt_identity()
+            user_role = identity.get('role') if isinstance(identity, dict) else None
+            
+            if not user_role or user_role not in allowed_roles:
+                return api_response(False, "Unauthorized: Insufficient role permissions", status_code=403)
+            
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator

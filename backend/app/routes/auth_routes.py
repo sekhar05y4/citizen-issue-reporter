@@ -32,34 +32,72 @@ def register():
     }, status_code=201)
 
 
-@auth_bp.route('/login', methods=['POST'])
-def login():
+def _perform_login(expected_role=None):
     data = request.get_json() or {}
     email = data.get('email', '').strip().lower()
     password = data.get('password', '').strip()
+    req_expected_role = data.get('expected_role') or expected_role
 
     if not email or not password:
         return api_response(False, 'Email and password are required', status_code=400)
 
-    # 1. Check Citizen User
+    # 1. Search across User (CITIZEN) and AdminUser (ADMIN / OFFICER)
+    found_user = None
+    user_type = None
+
     citizen = User.query.filter_by(email=email).first()
     if citizen and citizen.check_password(password):
-        access_token = create_access_token(identity={'id': citizen.id, 'role': citizen.role, 'email': citizen.email})
-        return api_response(True, 'Login successful', {
-            'access_token': access_token,
-            'user': citizen.to_dict()
-        })
+        found_user = citizen
+        user_type = 'CITIZEN'
+    else:
+        admin_officer = AdminUser.query.filter_by(email=email).first()
+        if admin_officer and admin_officer.check_password(password):
+            found_user = admin_officer
+            user_type = admin_officer.role
 
-    # 2. Check Admin / Officer User
-    admin = AdminUser.query.filter_by(email=email).first()
-    if admin and admin.check_password(password):
-        access_token = create_access_token(identity={'id': admin.id, 'role': admin.role, 'email': admin.email})
-        return api_response(True, 'Staff login successful', {
-            'access_token': access_token,
-            'user': admin.to_dict()
-        })
+    # Check if credentials are valid
+    if not found_user:
+        return api_response(False, 'Invalid email or password.', status_code=401)
 
-    return api_response(False, 'Invalid email or password', status_code=401)
+    actual_role = found_user.role
+
+    # 2. Strict Role Verification against portal
+    if req_expected_role and req_expected_role.upper() != actual_role.upper():
+        return api_response(False, 'These credentials are not authorized for the selected portal.', status_code=403)
+
+    # 3. Create authenticated JWT token
+    token_payload = {
+        'id': found_user.id,
+        'role': actual_role,
+        'email': found_user.email,
+        'department_id': getattr(found_user, 'department_id', None)
+    }
+    access_token = create_access_token(identity=token_payload)
+
+    return api_response(True, f'{actual_role.capitalize()} login successful', {
+        'access_token': access_token,
+        'user': found_user.to_dict()
+    })
+
+
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    return _perform_login()
+
+
+@auth_bp.route('/login/citizen', methods=['POST'])
+def login_citizen():
+    return _perform_login(expected_role='CITIZEN')
+
+
+@auth_bp.route('/login/officer', methods=['POST'])
+def login_officer():
+    return _perform_login(expected_role='OFFICER')
+
+
+@auth_bp.route('/login/admin', methods=['POST'])
+def login_admin():
+    return _perform_login(expected_role='ADMIN')
 
 
 @auth_bp.route('/me', methods=['GET'])

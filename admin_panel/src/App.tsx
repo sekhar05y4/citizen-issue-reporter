@@ -10,6 +10,8 @@ import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { LandingPage } from './pages/LandingPage';
+import { CitizenPortal } from './pages/CitizenPortal';
+import { OfficerPortal } from './pages/OfficerPortal';
 import { ComplaintModal } from './components/ComplaintModal';
 import type { User, Complaint, Category, Department, DashboardStats, UserRole } from './types';
 import { api } from './services/api';
@@ -51,6 +53,7 @@ export function App() {
   }, []);
 
   const loadData = async () => {
+    if (!currentUser || currentUser.role !== 'ADMIN') return;
     try {
       const [sRes, cRes, catRes, dRes, oRes] = await Promise.all([
         api.getDashboardStats(),
@@ -71,7 +74,7 @@ export function App() {
   };
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && currentUser.role === 'ADMIN') {
       loadData();
     }
   }, [currentUser]);
@@ -113,7 +116,17 @@ export function App() {
     );
   }
 
-  // 3. Main Dashboard & Command Center
+  // 3. Citizen Portal View
+  if (currentUser && currentUser.role === 'CITIZEN') {
+    return <CitizenPortal user={currentUser} onLogout={handleLogout} />;
+  }
+
+  // 4. Officer Portal View
+  if (currentUser && currentUser.role === 'OFFICER') {
+    return <OfficerPortal user={currentUser} onLogout={handleLogout} />;
+  }
+
+  // 5. Admin Command Center View (Existing Full Interface)
   return (
     <div className="flex min-h-screen bg-slate-50 w-full overflow-x-hidden">
       <Sidebar
@@ -129,26 +142,15 @@ export function App() {
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800 capitalize">{activeTab.replace('_', ' ')}</h1>
-            <p className="text-xs text-slate-500 font-medium">
-              {currentUser?.role === 'OFFICER'
-                ? `Department Field Operations — ${currentUser.department_name || 'Assigned Division'}`
-                : currentUser?.role === 'CITIZEN'
-                ? 'Citizen Grievance Status & Redressal Tracking'
-                : 'Municipal Grievance Redressal Command Center'}
-            </p>
+            <p className="text-xs text-slate-500 font-medium">Municipal Grievance Redressal Command Center</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
               System Online
             </span>
             <button
-              onClick={() => {
-                localStorage.removeItem('admin_token');
-                localStorage.removeItem('admin_user');
-                setCurrentUser(null);
-                setViewMode('landing');
-              }}
-              className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors"
+              onClick={handleLogout}
+              className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer"
             >
               Exit to Portal
             </button>

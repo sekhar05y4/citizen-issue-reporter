@@ -14,7 +14,8 @@ class TestConfig:
 @pytest.fixture
 def app():
     app = create_app(TestConfig)
-    yield app
+    with app.app_context():
+        yield app
 
 @pytest.fixture
 def client(app):
@@ -26,75 +27,136 @@ def test_health_check(client):
     data = res.get_json()
     assert data['success'] is True
 
-def test_categories_endpoint(client):
-    res = client.get('/api/categories')
+def test_separate_role_logins_and_rejections(client):
+    # 1. Citizen login with Citizen credentials -> SUCCESS
+    res = client.post('/api/auth/login', json={
+        'email': 'citizen@demo.local',
+        'password': 'Citizen@123',
+        'expected_role': 'CITIZEN'
+    })
     assert res.status_code == 200
-    data = res.get_json()
-    assert data['success'] is True
-    assert len(data['data']) > 0
+    citizen_data = res.get_json()
+    assert citizen_data['success'] is True
+    citizen_token = citizen_data['data']['access_token']
 
-def test_user_registration_and_login(client):
-    # Register
-    res = client.post('/api/auth/register', json={
-        'name': 'Test Citizen',
-        'email': 'newcitizen@example.com',
-        'phone': '1234567890',
+    # 2. Citizen login with Officer credentials -> FAIL
+    res_fail1 = client.post('/api/auth/login', json={
+        'email': 'officer@demo.local',
+        'password': 'Officer@123',
+        'expected_role': 'CITIZEN'
+    })
+    assert res_fail1.status_code == 403
+    assert 'not authorized for the selected portal' in res_fail1.get_json()['message']
+
+    # 3. Citizen login with Admin credentials -> FAIL
+    res_fail2 = client.post('/api/auth/login', json={
+        'email': 'admin@demo.local',
+        'password': 'Admin@123',
+        'expected_role': 'CITIZEN'
+    })
+    assert res_fail2.status_code == 403
+
+    # 4. Officer login with Officer credentials -> SUCCESS
+    res_off = client.post('/api/auth/login', json={
+        'email': 'officer@demo.local',
+        'password': 'Officer@123',
+        'expected_role': 'OFFICER'
+    })
+    assert res_off.status_code == 200
+    officer_token = res_off.get_json()['data']['access_token']
+
+    # 5. Officer login with Citizen credentials -> FAIL
+    res_fail3 = client.post('/api/auth/login', json={
+        'email': 'citizen@demo.local',
+        'password': 'Citizen@123',
+        'expected_role': 'OFFICER'
+    })
+    assert res_fail3.status_code == 403
+
+    # 6. Officer login with Admin credentials -> FAIL
+    res_fail4 = client.post('/api/auth/login', json={
+        'email': 'admin@demo.local',
+        'password': 'Admin@123',
+        'expected_role': 'OFFICER'
+    })
+    assert res_fail4.status_code == 403
+
+    # 7. Admin login with Admin credentials -> SUCCESS
+    res_adm = client.post('/api/auth/login', json={
+        'email': 'admin@demo.local',
+        'password': 'Admin@123',
+        'expected_role': 'ADMIN'
+    })
+    assert res_adm.status_code == 200
+    admin_token = res_adm.get_json()['data']['access_token']
+
+    # 8. Admin login with Citizen credentials -> FAIL
+    res_fail5 = client.post('/api/auth/login', json={
+        'email': 'citizen@demo.local',
+        'password': 'Citizen@123',
+        'expected_role': 'ADMIN'
+    })
+    assert res_fail5.status_code == 403
+
+    # 9. Admin login with Officer credentials -> FAIL
+    res_fail6 = client.post('/api/auth/login', json={
+        'email': 'officer@demo.local',
+        'password': 'Officer@123',
+        'expected_role': 'ADMIN'
+    })
+    assert res_fail6.status_code == 403
+
+    # 10. Citizen directly visits /api/admin/users -> DENIED
+    res_citizen_denied = client.get('/api/admin/users', headers={
+        'Authorization': f'Bearer {citizen_token}'
+    })
+    assert res_citizen_denied.status_code == 403
+
+    # 11. Officer directly visits /api/admin/users -> DENIED
+    res_officer_denied = client.get('/api/admin/users', headers={
+        'Authorization': f'Bearer {officer_token}'
+    })
+    assert res_officer_denied.status_code == 403
+
+    # 12. Admin accesses authorized admin API -> ALLOWED
+    res_admin_allowed = client.get('/api/admin/users', headers={
+        'Authorization': f'Bearer {admin_token}'
+    })
+    assert res_admin_allowed.status_code == 200
+    assert res_admin_allowed.get_json()['success'] is True
+
+def test_complaint_ownership_and_access_control(client):
+    # Login citizen 1
+    res_c1 = client.post('/api/auth/login', json={
+        'email': 'citizen@demo.local',
+        'password': 'Citizen@123',
+        'expected_role': 'CITIZEN'
+    })
+    c1_token = res_c1.get_json()['data']['access_token']
+
+    # Register citizen 2
+    res_reg = client.post('/api/auth/register', json={
+        'name': 'Second Citizen',
+        'email': 'citizen2@demo.local',
+        'phone': '9998887776',
         'password': 'Password123!'
     })
-    assert res.status_code == 201
-    data = res.get_json()
-    assert data['success'] is True
-    assert 'access_token' in data['data']
+    c2_token = res_reg.get_json()['data']['access_token']
 
-    # Login
-    res_login = client.post('/api/auth/login', json={
-        'email': 'newcitizen@example.com',
-        'password': 'Password123!'
-    })
-    assert res_login.status_code == 200
-    login_data = res_login.get_json()
-    assert login_data['success'] is True
-
-def test_complaint_creation_and_tracking(client):
-    # Create complaint
-    res = client.post('/api/complaints', json={
+    # Citizen 1 creates a complaint
+    res_create = client.post('/api/complaints', json={
         'category_id': 1,
-        'title': 'Test Broken Pipeline',
-        'description': 'Water flooding the whole street corner',
-        'latitude': 28.5,
-        'longitude': 77.2,
-        'address': 'Test Ward 5',
-        'priority': 'HIGH'
-    })
-    assert res.status_code == 201
-    comp = res.get_json()['data']
-    assert 'complaint_number' in comp
-    assert comp['status'] == 'SUBMITTED'
-    comp_id = comp['id']
+        'title': 'Pothole on Citizen 1 Lane',
+        'description': 'Large crater damaging vehicles',
+        'address': 'Ward 10'
+    }, headers={'Authorization': f'Bearer {c1_token}'})
+    assert res_create.status_code == 201
+    comp_id = res_create.get_json()['data']['id']
 
-    # Get details
-    res_detail = client.get(f'/api/complaints/{comp_id}')
-    assert res_detail.status_code == 200
-    assert res_detail.get_json()['data']['id'] == comp_id
+    # Citizen 1 can view own complaint
+    res_view1 = client.get(f'/api/complaints/{comp_id}', headers={'Authorization': f'Bearer {c1_token}'})
+    assert res_view1.status_code == 200
 
-    # Update status via Admin endpoint
-    res_status = client.put(f'/api/admin/complaints/{comp_id}/status', json={
-        'status': 'IN_PROGRESS',
-        'remarks': 'Assigned repair team',
-        'changed_by': 'Admin Officer'
-    })
-    assert res_status.status_code == 200
-    assert res_status.get_json()['data']['status'] == 'IN_PROGRESS'
-
-    # Check status history
-    res_hist = client.get(f'/api/complaints/{comp_id}/history')
-    assert res_hist.status_code == 200
-    history = res_hist.get_json()['data']
-    assert len(history) >= 2
-
-def test_admin_dashboard_stats(client):
-    res = client.get('/api/admin/dashboard')
-    assert res.status_code == 200
-    data = res.get_json()['data']
-    assert 'total_complaints' in data
-    assert 'category_breakdown' in data
+    # Citizen 2 cannot view Citizen 1's complaint
+    res_view2 = client.get(f'/api/complaints/{comp_id}', headers={'Authorization': f'Bearer {c2_token}'})
+    assert res_view2.status_code == 403

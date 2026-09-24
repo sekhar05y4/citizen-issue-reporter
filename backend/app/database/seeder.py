@@ -29,37 +29,48 @@ def seed_database():
         db.session.add_all(departments)
         db.session.commit()
 
-    # 3. Users (Citizen & Admin & Officer)
-    if User.query.filter_by(email='citizen@demo.local').first() is None:
+    # 3. Users (Citizen & Admin & Officer with exact specified credentials)
+    demo_citizen = User.query.filter_by(email='citizen@demo.local').first()
+    if demo_citizen is None:
         demo_citizen = User(
             name='Rahul Sharma',
             email='citizen@demo.local',
             phone='+91 98765 43210',
             role='CITIZEN'
         )
-        demo_citizen.set_password('DemoPass123!')
+        demo_citizen.set_password('Citizen@123')
         db.session.add(demo_citizen)
-        db.session.commit()
+    else:
+        # ensure password matches Citizen@123
+        demo_citizen.set_password('Citizen@123')
 
-    if AdminUser.query.filter_by(email='admin@demo.local').first() is None:
+    demo_admin = AdminUser.query.filter_by(email='admin@demo.local').first()
+    if demo_admin is None:
         demo_admin = AdminUser(
             name='Dr. Anita Verma (Chief Municipal Officer)',
             email='admin@demo.local',
             role='ADMIN'
         )
-        demo_admin.set_password('DemoPass123!')
+        demo_admin.set_password('Admin@123')
         db.session.add(demo_admin)
+    else:
+        demo_admin.set_password('Admin@123')
 
-    if AdminUser.query.filter_by(email='officer@demo.local').first() is None:
-        roads_dept = Department.query.filter_by(name='Roads & Infrastructure').first()
+    roads_dept = Department.query.filter_by(name='Roads & Infrastructure').first()
+    demo_officer = AdminUser.query.filter_by(email='officer@demo.local').first()
+    if demo_officer is None:
         demo_officer = AdminUser(
-            name='Vikram Singh (Ward Inspector)',
+            name='Er. Rajesh Kumar (Ward Inspector)',
             email='officer@demo.local',
             role='OFFICER',
             department_id=roads_dept.id if roads_dept else None
         )
-        demo_officer.set_password('DemoPass123!')
+        demo_officer.set_password('Officer@123')
         db.session.add(demo_officer)
+    else:
+        demo_officer.set_password('Officer@123')
+        if roads_dept and not demo_officer.department_id:
+            demo_officer.department_id = roads_dept.id
 
     db.session.commit()
 
@@ -95,7 +106,7 @@ def seed_database():
         h1 = ComplaintStatusHistory(complaint_id=c1.id, status='SUBMITTED', remarks='Issue submitted by citizen', changed_by='Citizen', created_at=datetime.utcnow() - timedelta(days=2))
         h2 = ComplaintStatusHistory(complaint_id=c1.id, status='UNDER_REVIEW', remarks='Triage review by Municipal Control Desk', changed_by='Admin', created_at=datetime.utcnow() - timedelta(days=1, hours=12))
         h3 = ComplaintStatusHistory(complaint_id=c1.id, status='ASSIGNED', remarks='Assigned to Roads & Infrastructure squad', changed_by='Admin', created_at=datetime.utcnow() - timedelta(days=1))
-        h4 = ComplaintStatusHistory(complaint_id=c1.id, status='IN_PROGRESS', remarks='Asphalt resurfacing crew dispatched to site', changed_by='Officer Vikram Singh', created_at=datetime.utcnow() - timedelta(hours=8))
+        h4 = ComplaintStatusHistory(complaint_id=c1.id, status='IN_PROGRESS', remarks='Asphalt resurfacing crew dispatched to site', changed_by='Officer Rajesh Kumar', created_at=datetime.utcnow() - timedelta(hours=8))
         db.session.add_all([h1, h2, h3, h4])
 
         c2 = Complaint(
@@ -116,7 +127,7 @@ def seed_database():
         db.session.add(c2)
         db.session.flush()
 
-        h2_1 = ComplaintStatusHistory(complaint_id=c2.id, status='SUBMITTED', remarks='Submitted via mobile app', changed_by='Citizen', created_at=datetime.utcnow() - timedelta(days=4))
+        h2_1 = ComplaintStatusHistory(complaint_id=c2.id, status='SUBMITTED', remarks='Submitted via citizen portal', changed_by='Citizen', created_at=datetime.utcnow() - timedelta(days=4))
         h2_2 = ComplaintStatusHistory(complaint_id=c2.id, status='RESOLVED', remarks='Pipeline valve sealed and pressure tested successfully', changed_by='Water Dept Engineer', created_at=datetime.utcnow() - timedelta(hours=12))
         db.session.add_all([h2_1, h2_2])
 
@@ -139,7 +150,7 @@ def seed_database():
         h3_1 = ComplaintStatusHistory(complaint_id=c3.id, status='SUBMITTED', remarks='Logged in civic registry', changed_by='Citizen', created_at=datetime.utcnow() - timedelta(hours=5))
         db.session.add(h3_1)
 
-        # Seed initial notification for citizen
+        # Seed initial notifications for citizen
         notif1 = Notification(
             user_id=citizen.id,
             complaint_id=c1.id,

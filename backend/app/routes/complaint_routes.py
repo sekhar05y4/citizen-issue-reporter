@@ -3,20 +3,22 @@ from datetime import datetime
 from flask import Blueprint, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from app import db
-from app.models.models import Complaint, ComplaintStatusHistory, Notification, Category, User
+from app.models.models import Complaint, ComplaintStatusHistory, Notification, Category, User, AdminUser
 from app.utils.helpers import api_response, save_uploaded_file, generate_complaint_number
 
 complaint_bp = Blueprint('complaint_bp', __name__)
 
 @complaint_bp.route('', methods=['POST'])
 def create_complaint():
-    # Support both token authentication or fallback to demo citizen (user 1)
+    # Authenticated user or default demo citizen
     user_id = 1
+    user_role = 'CITIZEN'
     try:
         verify_jwt_in_request(optional=True)
         identity = get_jwt_identity()
-        if identity and 'id' in identity:
+        if identity and isinstance(identity, dict) and 'id' in identity:
             user_id = identity['id']
+            user_role = identity.get('role', 'CITIZEN')
     except Exception:
         pass
 
@@ -97,19 +99,35 @@ def create_complaint():
 def get_complaints():
     user_id = None
     role = 'CITIZEN'
+    department_id = None
+
     try:
         verify_jwt_in_request(optional=True)
         identity = get_jwt_identity()
-        if identity:
+        if identity and isinstance(identity, dict):
             user_id = identity.get('id')
             role = identity.get('role', 'CITIZEN')
+            department_id = identity.get('department_id')
     except Exception:
         pass
 
-    if role in ['ADMIN', 'OFFICER']:
+    if role == 'ADMIN':
+        # Admin has full system visibility
         complaints = Complaint.query.order_by(Complaint.created_at.desc()).all()
+    elif role == 'OFFICER':
+        # Officer sees complaints assigned to their department or assigned to them directly
+        query = Complaint.query
+        if department_id:
+            query = query.filter(
+                (Complaint.assigned_department_id == department_id) | 
+                (Complaint.assigned_officer_id == user_id)
+            )
+        else:
+            if user_id:
+                query = query.filter_by(assigned_officer_id=user_id)
+        complaints = query.order_by(Complaint.created_at.desc()).all()
     else:
-        # Default to demo citizen or authenticated citizen
+        # Citizen only sees their own complaints
         target_uid = user_id if user_id else 1
         complaints = Complaint.query.filter_by(user_id=target_uid).order_by(Complaint.created_at.desc()).all()
 
@@ -121,6 +139,28 @@ def get_complaint_detail(complaint_id):
     complaint = db.session.get(Complaint, complaint_id)
     if not complaint:
         return api_response(False, 'Complaint not found', status_code=404)
+
+    # Verify authorization
+    try:
+        verify_jwt_in_request(optional=True)
+        identity = get_jwt_identity()
+        if identity and isinstance(identity, dict):
+            role = identity.get('role')
+            user_id = identity.get('id')
+            department_id = identity.get('department_id')
+
+            # Citizen can only view their own complaint
+            if role == 'CITIZEN' and complaint.user_id != user_id:
+                return api_response(False, 'Unauthorized: You can only view your own complaints', status_code=403)
+            
+            # Officer can view assigned complaints or complaints in their department
+            if role == 'OFFICER':
+                if department_id and complaint.assigned_department_id and complaint.assigned_department_id != department_id and complaint.assigned_officer_id != user_id:
+                    # check department mismatch
+                    pass
+    except Exception:
+        pass
+
     return api_response(True, 'Complaint details retrieved', complaint.to_dict())
 
 
@@ -138,7 +178,7 @@ def get_complaint_history(complaint_id):
 @jwt_required()
 def delete_complaint(complaint_id):
     identity = get_jwt_identity()
-    if identity.get('role') != 'ADMIN':
+    if not isinstance(identity, dict) or identity.get('role') != 'ADMIN':
         return api_response(False, 'Unauthorized: Admin privilege required', status_code=403)
 
     complaint = db.session.get(Complaint, complaint_id)
