@@ -1,122 +1,144 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useState, useEffect } from 'react';
+import { Sidebar } from './components/Sidebar';
+import { DashboardPage } from './pages/DashboardPage';
+import { ComplaintsPage } from './pages/ComplaintsPage';
+import { MapPage } from './pages/MapPage';
+import { DepartmentsPage } from './pages/DepartmentsPage';
+import { UsersPage } from './pages/UsersPage';
+import { FeedbackPage } from './pages/FeedbackPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { LoginPage } from './pages/LoginPage';
+import { ComplaintModal } from './components/ComplaintModal';
+import type { User, Complaint, Category, Department, DashboardStats } from './types';
+import { api } from './services/api';
 
-function App() {
-  const [count, setCount] = useState(0)
+export function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [officers, setOfficers] = useState<User[]>([]);
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
+
+  useEffect(() => {
+    const cachedUser = localStorage.getItem('admin_user');
+    if (cachedUser) {
+      try {
+        setCurrentUser(JSON.parse(cachedUser));
+      } catch (_) {}
+    }
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [sRes, cRes, catRes, dRes, oRes] = await Promise.all([
+        api.getDashboardStats(),
+        api.getComplaints(),
+        api.getCategories(),
+        api.getDepartments(),
+        api.getOfficers(),
+      ]);
+
+      if (sRes.success) setStats(sRes.data);
+      if (cRes.success) setComplaints(cRes.data);
+      if (catRes.success) setCategories(catRes.data);
+      if (dRes.success) setDepartments(dRes.data);
+      if (oRes.success) setOfficers(oRes.data);
+    } catch (err) {
+      console.error('Data load error', err);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+      loadData();
+    }
+  }, [currentUser]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_user');
+    setCurrentUser(null);
+  };
+
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="flex min-h-screen bg-slate-50">
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
 
-      <div className="ticks"></div>
+      <main className="flex-1 ml-64 p-8 overflow-y-auto min-h-screen">
+        <header className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-slate-800 capitalize">{activeTab.replace('_', ' ')}</h1>
+            <p className="text-xs text-slate-500 font-medium">Municipal Grievance Redressal Command Center</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+              System Online
+            </span>
+          </div>
+        </header>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        {activeTab === 'dashboard' && (
+          <DashboardPage
+            stats={stats}
+            onSelectComplaint={(c) => setSelectedComplaint(c)}
+            onViewAllComplaints={() => setActiveTab('complaints')}
+          />
+        )}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {activeTab === 'complaints' && (
+          <ComplaintsPage
+            complaints={complaints}
+            categories={categories}
+            departments={departments}
+            onSelectComplaint={(c) => setSelectedComplaint(c)}
+            onRefresh={loadData}
+          />
+        )}
+
+        {activeTab === 'map' && (
+          <MapPage
+            complaints={complaints}
+            onSelectComplaint={(c) => setSelectedComplaint(c)}
+          />
+        )}
+
+        {activeTab === 'departments' && (
+          <DepartmentsPage departments={departments} onRefresh={loadData} />
+        )}
+
+        {activeTab === 'users' && <UsersPage />}
+
+        {activeTab === 'feedback' && <FeedbackPage />}
+
+        {activeTab === 'reports' && <ReportsPage stats={stats} />}
+
+        {activeTab === 'settings' && <SettingsPage />}
+
+        {selectedComplaint && (
+          <ComplaintModal
+            complaint={selectedComplaint}
+            departments={departments}
+            officers={officers}
+            onClose={() => setSelectedComplaint(null)}
+            onRefresh={loadData}
+          />
+        )}
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default App;
